@@ -1061,6 +1061,7 @@
     UI.detailCode = code; UI.detailPeriod = UI.detailPeriod || 'intraday';
     $('#detailOverlay').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    Market.markActive(code); // 详情股票标记活跃，纳入行情轮询
     renderDetailHead();
     renderDetailBody();
     // 双击全屏时优先抓取该股完整数据（基本面+行情），抓完立即刷新详情

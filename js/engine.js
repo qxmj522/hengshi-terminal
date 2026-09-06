@@ -121,6 +121,7 @@
       code = canon.code;
       if (this.inWatch(code)) return;
       this.state.watchlist.push({ code, market: canon.market, tags: tag ? [tag] : [], strike: '', addedAt: Date.now() });
+      markActive(code); // 加入自选即标记活跃
       this.save();
     },
     removeWatch(code) { this.state.watchlist = this.state.watchlist.filter(w => w.code !== code); this.save(); },
@@ -292,11 +293,25 @@
     return quotes;
   }
   /* 统一行情取数：优先本地服务器行情桥（双源+缓存），不可用时直连腾讯（静态托管/GitHub Pages） */
+  let backendState = 0; // 0=未知 1=有后端 2=无后端(直连)
   async function fetchQuotes(tcs) {
-    try {
-      const r = await fetch('/api/quotes?codes=' + tcs.join(','), { signal: AbortSignal.timeout(6000) });
-      if (r.ok) { const data = await r.json(); if (data && data.quotes) return data.quotes; }
-    } catch (e) { /* fallthrough 到直连 */ }
+    // 首次探测后端是否存在（静态托管如GitHub Pages无后端，之后直接直连，避免每次刷新都404一次）
+    if (backendState === 0) {
+      backendState = 2;
+      try {
+        const r = await fetch('/api/quotes?codes=sh000001', { signal: AbortSignal.timeout(2500) });
+        if (r.ok) {
+          const ct = r.headers.get('content-type') || '';
+          if (ct.indexOf('json') >= 0) backendState = 1;
+        }
+      } catch (e) { /* 保持直连 */ }
+    }
+    if (backendState === 1) {
+      try {
+        const r = await fetch('/api/quotes?codes=' + tcs.join(','), { signal: AbortSignal.timeout(6000) });
+        if (r.ok) { const data = await r.json(); if (data && data.quotes) return data.quotes; }
+      } catch (e) { /* fallthrough 到直连 */ }
+    }
     return fetchQuotesDirect(tcs);
   }
 
@@ -500,6 +515,10 @@
     if (s.series) { s.series.push(s.price); if (s.series.length > 242) s.series.shift(); }
   }
 
+  /* ---------- 活跃股票集合：只抓当前关心的股票（自选/搜索命中/详情），避免整个股票池膨胀 ---------- */
+  const activeSet = new Set();
+  function markActive(code) { if (code) activeSet.add(code); }
+
   /* ---------- 实时引擎：真实行情优先，模拟兜底 ---------- */
   const listeners = [];
   const Engine = {
@@ -516,15 +535,20 @@
       // 1) 尝试真实行情：优先本地行情桥，静态托管(GitHub Pages)时直连腾讯
       let real = false;
       try {
+        // 只抓当前关心的股票：活跃集合 + 自选 + 对比 + 指数，避免整个股票池膨胀
+        const wanted = new Set(activeSet);
+        (Store.state.watchlist || []).forEach(w => wanted.add(w.code));
+        (Store.state.compare || []).forEach(c => wanted.add(c.code));
         const tcs = [];
-        MARKET_DATA.STOCKS.forEach(s => { const t = tcOf(s); if (t) tcs.push(t); });
+        wanted.forEach(code => { const s = stockMap[code]; if (s) { const t = tcOf(s); if (t) tcs.push(t); } });
         Object.keys(IDX_TC).forEach(k => tcs.push(IDX_TC[k]));
         const byTc = await fetchQuotes(tcs);
         if (byTc && Object.keys(byTc).length) {
-          MARKET_DATA.STOCKS.forEach(s => {
+          wanted.forEach(code => {
+            const s = stockMap[code]; if (!s) return;
             const q = byTc[tcOf(s)];
             if (q && q.price > 0) applyReal(s, q);
-            else this.simStock(s);
+            else if (!s._real) this.simStock(s);
           });
           MARKET_DATA.INDICES.forEach(x => {
             const q = byTc[IDX_TC[x.code]];
@@ -583,6 +607,7 @@
     MARKET_DATA.STOCKS.push(s);
     stockMap[code] = s;
     s._dynamic = true;
+    markActive(code); // 搜索命中即标记为活跃，纳入行情轮询
     if (q) applyReal(s, q);
     return s;
   }
@@ -657,7 +682,7 @@
   window.Fmt = { CUR, fmtPrice, fmtPct, fmtCap, fmtYi, fmtShares, fmtRatio };
   window.StockMap = stockMap;
   window.IndexMap = indexMap;
-  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot, fetchStockData };
+  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot, fetchStockData, markActive };
   /* 按代码应用行情快照（股票已入库时更新，未入库返回null） */
   function applyQuote(code, q) { const s = stockMap[code]; if (s && q && q.price > 0) { applyReal(s, q); return s; } return s; }
 })();
