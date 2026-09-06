@@ -306,7 +306,8 @@
     if (/^SH\d{6}$/.test(c)) return c.slice(2) + '.SH';
     if (/^SZ\d{6}$/.test(c)) return c.slice(2) + '.SZ';
     if (/^BJ\d{6}$/.test(c)) return c.slice(2) + '.BJ';
-    return null; // 港股/美股走不同接口，暂不覆盖
+    if (/^HK\d{5}$/.test(c)) return c.slice(2) + '.HK';
+    return null; // 美股暂无
   }
   async function emGet(reportName, filter, sortColumns) {
     try {
@@ -319,9 +320,10 @@
       return (d && d.result && d.result.data) ? d.result.data : null;
     } catch (e) { return null; }
   }
-  /* 财务指标：ROE / 净利润 / 营收 / 股本 */
+  /* 财务指标：ROE / 净利润 / 营收 / 股本（A股 + 港股） */
   async function fetchFundamental(code) {
     const secu = secuCodeOf(code); if (!secu) return null;
+    if (/^HK/.test(code)) return fetchHKFundamental(secu);
     const rows = await emGet('RPT_F10_FINANCE_MAINFINADATA', '(SECUCODE="' + secu + '")', 'REPORT_DATE');
     if (!rows || !rows.length) return null;
     const L = rows[0], P = rows[1] || null;
@@ -332,6 +334,22 @@
       totalShr: numV(L.TOTAL_SHARE) / 1e8,            // 总股本(亿股)
       floatShr: (numV(L.A_FREE_SHARE) + numV(L.B_FREE_SHARE)) / 1e8, // 流通股本(亿股)
       prevShr: P ? numV(P.TOTAL_SHARE) / 1e8 : 0      // 上期总股本(亿股)
+    };
+  }
+  /* 港股财务指标（东财 HKF10 主要指标） */
+  async function fetchHKFundamental(secu) {
+    const rows = await emGet('RPT_CUSTOM_HKF10_FN_MAININDICATORMAX', '(SECUCODE="' + secu + '")', 'REPORT_DATE');
+    if (!rows || !rows.length) return null;
+    const L = rows[0];
+    return {
+      roe: numV(L.ROE_AVG),                           // 平均 ROE(%)
+      profit: numV(L.HOLDER_PROFIT) / 1e8,            // 归属股东净利润(亿)
+      revenue: numV(L.OPERATE_INCOME) / 1e8,          // 营业收入(亿)
+      totalShr: numV(L.ISSUED_COMMON_SHARES) / 1e8,   // 总股本(亿股)
+      floatShr: numV(L.HK_COMMON_SHARES) / 1e8,       // 港股流通股本(亿股)
+      prevShr: 0,
+      peT: numV(L.PE_TTM), pb: numV(L.PB_TTM),        // 港股 PE/PB 东财直接给
+      divY: numV(L.DIVIDEND_RATE)                     // 股息率(%)
     };
   }
   /* 分红：每股派息 / 分红总额 */
@@ -369,6 +387,30 @@
       return { buyback: total / 1e8 };
     } catch (e) { return null; }
   }
+  /* 单只股票完整数据抓取（行情 + 基本面并行），供详情/搜索优先调用 */
+  async function fetchStockData(code) {
+    const s = stockMap[code];
+    if (!s) return null;
+    const tc = tcOf(s);
+    const needFund = !s._fund;
+    // 行情 + 基本面并行抓取
+    const [qs, fin, div, bb] = await Promise.all([
+      tc ? fetchQuotes([tc]) : Promise.resolve(null),
+      needFund ? fetchFundamental(code) : Promise.resolve(null),
+      needFund ? fetchDividend(code) : Promise.resolve(null),
+      needFund ? fetchBuyback(code) : Promise.resolve(null)
+    ]);
+    // 先应用行情（让价格就绪）
+    const q = qs && qs[tc];
+    if (q && q.price > 0) applyReal(s, q);
+    // 再应用基本面（此时价格已就绪，能正确算出 PS / 股息率）
+    if (needFund) {
+      if (fin || div || bb) applyFundamental(s, fin, div, bb);
+      s._fund = true;
+    }
+    return s;
+  }
+
   /* 应用基本面数据（含可信度校验，异常/缺失保持 0 → 显示"—"） */
   function applyFundamental(s, fin, div, bb) {
     if (fin) {
@@ -377,6 +419,10 @@
       if (fin.totalShr > 0) { s.totalShr = fin.totalShr; s._fundShr = true; }
       if (fin.floatShr > 0) s.floatShr = fin.floatShr;
       if (fin.prevShr > 0) s.prevShr = fin.prevShr;
+      // 港股东财直接给 PE/PB/股息率
+      if (fin.peT > 0) s.peT = fin.peT;
+      if (fin.pb > 0) s.pb = fin.pb;
+      if (fin.divY > 0) s.divY = fin.divY;
       // PS = 总市值 / 营收
       if (fin.revenue > 0 && s.price > 0 && s.totalShr > 0) {
         const ps = (s.price * s.totalShr) / fin.revenue;
@@ -611,7 +657,7 @@
   window.Fmt = { CUR, fmtPrice, fmtPct, fmtCap, fmtYi, fmtShares, fmtRatio };
   window.StockMap = stockMap;
   window.IndexMap = indexMap;
-  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot };
+  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot, fetchStockData };
   /* 按代码应用行情快照（股票已入库时更新，未入库返回null） */
   function applyQuote(code, q) { const s = stockMap[code]; if (s && q && q.price > 0) { applyReal(s, q); return s; } return s; }
 })();

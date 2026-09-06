@@ -305,6 +305,7 @@
 
     // 立即物化（先不取行情），让名称/代码秒显；价格先显示 "—"
     metas.forEach(m => Market.addDynamicStock(m, null));
+    requestFundMany(metas.map(m => m.code)); // 命中即触发基本面优先抓取（A股/港股）
     let list = univ.concat(metas.map(m => StockMap[m.code]).filter(Boolean));
 
     // 兜底：若无结果且输入像代码，直接按代码解析一次，保证有响应
@@ -622,36 +623,40 @@
     if (v !== '') toast('已设置击球点 · ' + StockMap[code].name + ' → ' + v);
   });
 
-  /* ---------- 抓取自选里 A 股的基本面数据（东财：ROE/净利润/营收/股本/分红/回购） ---------- */
-  let fundamentalBusy = false;
-  function refreshFundamentals(onDone) {
-    if (fundamentalBusy) { onDone && onDone(); return; }
-    const codes = Store.state.watchlist.map(w => w.code).filter(c => /^(SH|SZ|BJ)\d{6}$/.test(c));
-    if (!codes.length) { onDone && onDone(); return; }
-    fundamentalBusy = true;
-    const fetchOne = async (code) => {
-      const s = StockMap[code]; if (!s) return;
-      try {
-        const [fin, div, bb] = await Promise.all([
-          Market.fetchFundamental(code),
-          Market.fetchDividend(code),
-          Market.fetchBuyback(code)
-        ]);
-        if (fin || div || bb) Market.applyFundamental(s, fin, div, bb);
-      } catch (e) { /* 单个失败不影响其他 */ }
-    };
+  /* ---------- 基本面优先抓取队列（并发加速，详情/搜索/自选按需触发） ---------- */
+  let fundQueue = new Set();
+  let fundFetching = false;
+  function requestFund(code) {
+    if (!code) return;
+    if (!/^(SH|SZ|BJ|HK)\d{5,6}$/.test(code)) return; // 仅 A股/港股有基本面
+    const s = StockMap[code];
+    if (!s || s._fund || s._funding) return;
+    fundQueue.add(code);
+    kickFundFetch();
+  }
+  function requestFundMany(codes) { (codes || []).forEach(requestFund); }
+  function refreshCurrentView() {
+    if (UI.view === 'watchlist') viewWatchlist($('#viewRoot'));
+    else if (UI.view === 'stocks') viewStocks($('#viewRoot'));
+    else if (UI.detailCode) { renderDetailHead(); renderDetailBody(); }
+  }
+  function kickFundFetch() {
+    if (fundFetching || !fundQueue.size) return;
+    fundFetching = true;
     (async () => {
-      try {
-        for (let i = 0; i < codes.length; i += 5) {
-          await Promise.all(codes.slice(i, i + 5).map(fetchOne));
-        }
-      } finally {
-        fundamentalBusy = false;
+      while (fundQueue.size) {
+        const batch = [...fundQueue].slice(0, 15); // 每批15只并发
+        batch.forEach(c => fundQueue.delete(c));
+        await Promise.all(batch.map(code => Market.fetchStockData(code)));
+        refreshCurrentView(); // 每抓完一批就刷新一次，不等全部
       }
-      if (UI.view === 'watchlist') viewWatchlist($('#viewRoot'));
-      else if (UI.view === 'stocks') viewStocks($('#viewRoot'));
-      onDone && onDone();
+      fundFetching = false;
     })();
+  }
+  function refreshFundamentals(onDone) {
+    const codes = Store.state.watchlist.map(w => w.code).filter(c => /^(SH|SZ|BJ|HK)\d{5,6}$/.test(c));
+    requestFundMany(codes);
+    onDone && onDone();
   }
 
   /* ---------- 把自选里保存的字段快照恢复到股票对象（导入后立即展示，不等后台抓取） ---------- */
@@ -671,6 +676,7 @@
       ['all', '全部'], ['US', '美股'], ['HK', '港股'], ['CN', '沪深']
     ];
     Store.state.watchlist.forEach(w => Market.ensureStockInUniverse(w.code)); // 兜底：保证自选里的股票一定入库可显示
+    requestFundMany(Store.state.watchlist.map(w => w.code)); // 进入自选页即触发基本面优先抓取
     const list = Store.state.watchlist
       .map(w => StockMap[w.code]).filter(Boolean)
       .filter(s => UI.wlTab === 'all' ? true : UI.wlTab === 'CN' ? (s.market === 'SH' || s.market === 'SZ' || s.market === 'BJ') : s.market === UI.wlTab);
@@ -1057,6 +1063,10 @@
     document.body.style.overflow = 'hidden';
     renderDetailHead();
     renderDetailBody();
+    // 双击全屏时优先抓取该股完整数据（基本面+行情），抓完立即刷新详情
+    Market.fetchStockData(code).then(() => {
+      if (UI.detailCode === code) { renderDetailHead(); renderDetailBody(); }
+    }).catch(() => {});
   }
   function closeDetail() {
     $('#detailOverlay').classList.add('hidden');
