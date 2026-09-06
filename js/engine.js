@@ -426,6 +426,52 @@
     return s;
   }
 
+  /* ============ 数据分级：锁定数据（基本面）5次核对一致后锁定，一个月内不再抓取 ============ */
+  const FUND_LOCK_MS = 30 * 86400000; // 锁定一个月
+  async function verifyFundamental(code) {
+    const s = stockMap[code];
+    if (!s || !/^(SH|SZ|BJ|HK)\d{5,6}$/.test(code)) return;
+    // 已锁定且未过期 → 跳过（不再抓取）
+    if (s._fundLockedAt && Date.now() - s._fundLockedAt < FUND_LOCK_MS) return;
+    if (s._funding) return; // 正在抓取，跳过本轮
+    s._funding = true;
+    try {
+      const [fin, div, bb] = await Promise.all([
+        fetchFundamental(code), fetchDividend(code), fetchBuyback(code)
+      ]);
+      if (!fin && !div && !bb) { s._funding = false; return; }
+      // 关键字段指纹（锁定数据：ROE/净利润/营收/股本/每股派息/分红总额/回购）
+      const fp = [fin && fin.roe, fin && fin.profit, fin && fin.revenue, fin && fin.totalShr,
+                  div && div.divLast, div && div.divTotal, bb && bb.buyback].join('|');
+      if (fp === s._fundFp) {
+        s._fundChecks = (s._fundChecks || 0) + 1;
+        if (s._fundChecks >= 5) {
+          s._fundLockedAt = Date.now(); s._fund = true; // 连续5次核对一致 → 锁定
+          // 持久化锁定时间到自选记录（跨会话保留，锁定一个月）
+          const w = Store.getWatch(code);
+          if (w) { w.fundLockedAt = s._fundLockedAt; Store.save(); }
+        }
+      } else {
+        s._fundFp = fp; s._fundChecks = 1;
+        applyFundamental(s, fin, div, bb);
+        s._fund = true;
+      }
+    } catch (e) { /* 单次失败不影响 */ }
+    s._funding = false;
+  }
+  /* 批量验证锁定数据（活跃股票中未锁定的），分批并发，供刷新周期调用 */
+  function verifyFundamentalsBatch(codes) {
+    (codes || []).forEach(code => verifyFundamental(code));
+  }
+  /* 从自选记录恢复锁定时间（跨会话：锁定一个月内不重新验证；导入时记录被重建，锁定自然重置） */
+  function restoreFundLocks() {
+    (Store.state.watchlist || []).forEach(w => {
+      if (!w.fundLockedAt) return;
+      const s = stockMap[w.code];
+      if (s) s._fundLockedAt = w.fundLockedAt;
+    });
+  }
+
   /* 应用基本面数据（含可信度校验，异常/缺失保持 0 → 显示"—"） */
   function applyFundamental(s, fin, div, bb) {
     if (fin) {
@@ -532,10 +578,10 @@
     onTick(fn) { listeners.push(fn); },
     emit() { listeners.forEach(f => f()); },
     async refresh() {
-      // 1) 尝试真实行情：优先本地行情桥，静态托管(GitHub Pages)时直连腾讯
+      // 1) 实时数据（行情）：优先本地行情桥，静态托管(GitHub Pages)时直连腾讯
       let real = false;
       try {
-        // 只抓当前关心的股票：活跃集合 + 自选 + 对比 + 指数，避免整个股票池膨胀
+        // 抓自选 + 搜索显示 + 详情 + 对比（活跃集合）+ 指数
         const wanted = new Set(activeSet);
         (Store.state.watchlist || []).forEach(w => wanted.add(w.code));
         (Store.state.compare || []).forEach(c => wanted.add(c.code));
@@ -562,8 +608,17 @@
           real = Object.keys(byTc).length > 0;
         }
       } catch (e) { real = false; }
-      // 2) 行情桥不可用时，全体走模拟
-      if (!real) MARKET_DATA.STOCKS.forEach(s => this.simStock(s));
+      // 2) 行情完全失败时，仅对活跃股票模拟兜底（不碰整个股票池）
+      if (!real) {
+        const wanted = new Set(activeSet);
+        (Store.state.watchlist || []).forEach(w => wanted.add(w.code));
+        wanted.forEach(code => { const s = stockMap[code]; if (s) this.simStock(s); });
+      }
+      // 3) 锁定数据（基本面）：对活跃股票中未锁定的，抓取验证（连续5次一致后锁定一个月）
+      const wanted = new Set(activeSet);
+      (Store.state.watchlist || []).forEach(w => wanted.add(w.code));
+      (Store.state.compare || []).forEach(c => wanted.add(c.code));
+      verifyFundamentalsBatch([...wanted]);
       this.realMode = real;
       this.emit();
     },
@@ -682,7 +737,7 @@
   window.Fmt = { CUR, fmtPrice, fmtPct, fmtCap, fmtYi, fmtShares, fmtRatio };
   window.StockMap = stockMap;
   window.IndexMap = indexMap;
-  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot, fetchStockData, markActive };
+  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot, fetchStockData, markActive, verifyFundamental, verifyFundamentalsBatch, restoreFundLocks };
   /* 按代码应用行情快照（股票已入库时更新，未入库返回null） */
   function applyQuote(code, q) { const s = stockMap[code]; if (s && q && q.price > 0) { applyReal(s, q); return s; } return s; }
 })();

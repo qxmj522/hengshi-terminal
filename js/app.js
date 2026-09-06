@@ -303,9 +303,10 @@
       } catch (e) { /* 行情桥离线时仅本地清单 */ }
     }
 
-    // 立即物化（先不取行情），让名称/代码秒显；价格先显示 "—"
+    // 立即物化 + 标记活跃：搜索显示的每一只（内置univ + 动态metas）都要抓取
     metas.forEach(m => Market.addDynamicStock(m, null));
-    requestFundMany(metas.map(m => m.code)); // 命中即触发基本面优先抓取（A股/港股）
+    univ.forEach(s => Market.markActive(s.code)); // 内置股票也纳入行情抓取
+    requestFundMany(univ.concat(metas).map(x => x.code)); // 全部触发基本面抓取验证
     let list = univ.concat(metas.map(m => StockMap[m.code]).filter(Boolean));
 
     // 兜底：若无结果且输入像代码，直接按代码解析一次，保证有响应
@@ -623,14 +624,14 @@
     if (v !== '') toast('已设置击球点 · ' + StockMap[code].name + ' → ' + v);
   });
 
-  /* ---------- 基本面优先抓取队列（并发加速，详情/搜索/自选按需触发） ---------- */
+  /* ---------- 锁定数据（基本面）验证队列：搜索/详情/自选命中立即验证，连续5次一致后锁定 ---------- */
   let fundQueue = new Set();
   let fundFetching = false;
   function requestFund(code) {
     if (!code) return;
     if (!/^(SH|SZ|BJ|HK)\d{5,6}$/.test(code)) return; // 仅 A股/港股有基本面
     const s = StockMap[code];
-    if (!s || s._fund || s._funding) return;
+    if (!s || s._fundLockedAt) return; // 已锁定则跳过
     fundQueue.add(code);
     kickFundFetch();
   }
@@ -647,7 +648,7 @@
       while (fundQueue.size) {
         const batch = [...fundQueue].slice(0, 15); // 每批15只并发
         batch.forEach(c => fundQueue.delete(c));
-        await Promise.all(batch.map(code => Market.fetchStockData(code)));
+        await Promise.all(batch.map(code => Market.verifyFundamental(code))); // 5次验证锁定
         refreshCurrentView(); // 每抓完一批就刷新一次，不等全部
       }
       fundFetching = false;
@@ -1400,8 +1401,9 @@
   const rawHash = location.hash; // 先保存原始hash，navigate会改写
   const initView = validViews.includes(rawHash.slice(1)) ? rawHash.slice(1) : 'home';
   Market.materializeWatchlist(); // 启动时先把自选/对比里的股票补建入库，确保能显示
+  Market.restoreFundLocks(); // 恢复已锁定的基本面（一个月内不重新验证，加速加载）
   applyWatchSnapshots(); // 立即恢复本地已保存的字段快照，先展示再后台刷新
-  refreshFundamentals(); // 启动时抓取自选的基本面数据（ROE/股息率/分红/净利润等）
+  refreshFundamentals(); // 对未锁定的股票抓取验证（连续5次一致后锁定）
   navigate(initView);
   // 支持 #detail=CODE 直达单股全屏详情
   const m = rawHash.match(/detail=([A-Z0-9]+)/i);
