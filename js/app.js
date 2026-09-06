@@ -654,6 +654,15 @@
     })();
   }
 
+  /* ---------- 把自选里保存的字段快照恢复到股票对象（导入后立即展示，不等后台抓取） ---------- */
+  function applyWatchSnapshots() {
+    Store.state.watchlist.forEach(w => {
+      if (!w.snapshot) return;
+      const s = StockMap[w.code];
+      if (s) Market.applySnapshot(s, w.snapshot);
+    });
+  }
+
   /* ============================================================
    * 自选模块
    * ============================================================ */
@@ -1135,7 +1144,8 @@
         name,
         tags,
         strike: (w.strike == null || w.strike === '') ? '' : String(w.strike),
-        addedAt: Number(w.addedAt) || Date.now()
+        addedAt: Number(w.addedAt) || Date.now(),
+        snapshot: (w.snapshot && typeof w.snapshot === 'object') ? w.snapshot : null  // 完整字段快照
       });
     });
     const customTags = (Array.isArray(raw.customTags) ? raw.customTags : []).map(t => String(t).trim().slice(0, 12)).filter(Boolean);
@@ -1246,7 +1256,8 @@
           name: s ? s.name : (w.name || ''),
           tags: w.tags || [],
           strike: w.strike || '',
-          addedAt: w.addedAt || 0
+          addedAt: w.addedAt || 0,
+          snapshot: s ? Market.stockSnapshot(s) : (w.snapshot || null)  // 完整字段快照：导入时先展示再后台刷新
         };
       });
       const byMarket = { CN: [], HK: [], US: [] };
@@ -1301,10 +1312,11 @@
         $('#mOk').onclick = () => {
           Store.state = state; Store.save();
           Market.materializeWatchlist(); // 导入后立即把自选/对比的股票补建入库，确保各页能显示
+          applyWatchSnapshots();         // 立即恢复保存时的完整字段快照，先展示、不空白
           UI.tagTab = null; UI.wlTab = 'all'; UI.detailCode = null;
           closeModal();
           navigate('home');
-          refreshFundamentals(); // 导入后立即抓取自选的基本面数据（ROE/股息率/分红/净利润等）
+          refreshFundamentals(); // 后台抓取基本面，与快照比对后更新有变化的字段
           toast('导入成功 · 自选 ' + state.watchlist.length + ' 只 / 标签 ' + state.customTags.length + ' 个');
         };
       };
@@ -1377,6 +1389,7 @@
   const rawHash = location.hash; // 先保存原始hash，navigate会改写
   const initView = validViews.includes(rawHash.slice(1)) ? rawHash.slice(1) : 'home';
   Market.materializeWatchlist(); // 启动时先把自选/对比里的股票补建入库，确保能显示
+  applyWatchSnapshots(); // 立即恢复本地已保存的字段快照，先展示再后台刷新
   refreshFundamentals(); // 启动时抓取自选的基本面数据（ROE/股息率/分红/净利润等）
   navigate(initView);
   // 支持 #detail=CODE 直达单股全屏详情

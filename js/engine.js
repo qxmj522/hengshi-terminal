@@ -396,6 +396,41 @@
     s._fund = true;
   }
 
+  /* 导出股票对象的完整字段快照（随备份保存，导入时先展示、后台再刷新） */
+  function stockSnapshot(s) {
+    if (!s) return null;
+    return {
+      price: s.price || 0, prevClose: s.prevClose || 0,
+      peS: s.peS || 0, peT: s.peT || 0, pb: s.pb || 0, ps: s.ps || 0,
+      roe: s.roe || 0, divY: s.divY || 0,
+      divLast: s.divLast || 0, divPrev: s.divPrev || 0, divTotal: s.divTotal || 0,
+      profit: s.profit || 0, buyback: s.buyback || 0, incentive: s.incentive || 0,
+      floatShr: s.floatShr || 0, totalShr: s.totalShr || 0, prevShr: s.prevShr || 0
+    };
+  }
+  /* 把快照恢复到股票对象（导入后立即展示保存时的数据，后台抓取后再覆盖更新） */
+  function applySnapshot(s, snap) {
+    if (!s || !snap || typeof snap !== 'object') return;
+    if (snap.price > 0) s.price = snap.price;
+    if (snap.prevClose > 0) s.prevClose = snap.prevClose;
+    if (snap.peS > 0) s.peS = snap.peS;
+    if (snap.peT > 0) s.peT = snap.peT;
+    if (snap.pb > 0) s.pb = snap.pb;
+    if (snap.ps > 0) s.ps = snap.ps;
+    if (snap.roe) s.roe = snap.roe;
+    if (snap.divY) s.divY = snap.divY;
+    if (snap.divLast) s.divLast = snap.divLast;
+    if (snap.divPrev) s.divPrev = snap.divPrev;
+    if (snap.divTotal) s.divTotal = snap.divTotal;
+    if (snap.profit) s.profit = snap.profit;
+    if (snap.buyback) s.buyback = snap.buyback;
+    if (snap.incentive) s.incentive = snap.incentive;
+    if (snap.floatShr > 0) s.floatShr = snap.floatShr;
+    if (snap.totalShr > 0) { s.totalShr = snap.totalShr; s._fundShr = true; }
+    if (snap.prevShr > 0) s.prevShr = snap.prevShr;
+    s._snapLoaded = true;
+  }
+
   /* 应用真实行情快照到股票对象 */
   function applyReal(s, q) {
     // 离线时物化的股票（价格为0）首次拿到真实数据：清除已生成的空白历史/分时缓存
@@ -576,7 +611,7 @@
   window.Fmt = { CUR, fmtPrice, fmtPct, fmtCap, fmtYi, fmtShares, fmtRatio };
   window.StockMap = stockMap;
   window.IndexMap = indexMap;
-  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental };
+  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental, stockSnapshot, applySnapshot };
   /* 按代码应用行情快照（股票已入库时更新，未入库返回null） */
   function applyQuote(code, q) { const s = stockMap[code]; if (s && q && q.price > 0) { applyReal(s, q); return s; } return s; }
 })();
