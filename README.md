@@ -4,7 +4,7 @@
 
 ## 在线访问
 
-GitHub Pages 部署后访问：`https://<用户名>.github.io/<仓库名>/`
+👉 **https://qxmj522.github.io/hengshi-terminal/**
 
 ## 功能
 
@@ -29,6 +29,21 @@ GitHub Pages 部署后访问：`https://<用户名>.github.io/<仓库名>/`
 node server.js
 # 访问 http://127.0.0.1:8899
 ```
+
+## 项目文件结构
+
+| 文件 | 作用 |
+|---|---|
+| `index.html` | 页面主入口：顶部菜单、居中搜索框、按时段滚动的指数条、各模块容器、单股全屏详情与对比浮层 |
+| `css/style.css` | 全局样式：浅色克制高级感设计、版心 1700px、红涨绿跌、表格/卡片/弹窗/动画 |
+| `js/stocklist.js` | 全市场股票清单（A股 5556 + 港股 2798 + 美股精选），供搜索本地毫秒级匹配，离线也能搜 |
+| `js/data.js` | 内置基线数据：指数与代表性个股的静态快照、货币与市场常量 |
+| `js/engine.js` | 行情引擎与数据层：实时行情（腾讯直连 + 本地行情桥降级）、localStorage 存储、股票代码规范化、字段计算与格式化 |
+| `js/charts.js` | 图表绘制：分时 / 日K / 周K / 月K、迷你走势图（Canvas） |
+| `js/app.js` | 主应用逻辑：路由、搜索、自选、个股分组、对比、单股详情、个人账户、导出/导入 |
+| `server.js` | （可选）本地服务器：行情桥（双源）+ 管理员鉴权；纯静态部署无需 |
+| `.nojekyll` | 告知 GitHub Pages 跳过 Jekyll 处理，原样托管静态文件 |
+| `.gitignore` | Git 忽略规则（排除 `admin.json` 密码、本地数据、Python 脚本等） |
 
 ## 技术栈
 
