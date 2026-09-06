@@ -439,10 +439,9 @@
       const [fin, div, bb] = await Promise.all([
         fetchFundamental(code), fetchDividend(code), fetchBuyback(code)
       ]);
-      if (!fin && !div && !bb) { s._funding = false; return; }
-      // 关键字段指纹（锁定数据：ROE/净利润/营收/股本/每股派息/分红总额/回购）
-      const fp = [fin && fin.roe, fin && fin.profit, fin && fin.revenue, fin && fin.totalShr,
-                  div && div.divLast, div && div.divTotal, bb && bb.buyback].join('|');
+      if (!fin) { s._funding = false; return; } // 财务核心数据没拿到，等待下次重试
+      // 指纹只用财务核心字段（ROE/净利润/营收/股本），分红/回购偶发失败不影响锁定判定
+      const fp = [fin.roe, fin.profit, fin.revenue, fin.totalShr].join('|');
       if (fp === s._fundFp) {
         s._fundChecks = (s._fundChecks || 0) + 1;
         if (s._fundChecks >= 5) {
@@ -484,23 +483,29 @@
       if (fin.peT > 0) s.peT = fin.peT;
       if (fin.pb > 0) s.pb = fin.pb;
       if (fin.divY > 0) s.divY = fin.divY;
-      // PS = 总市值 / 营收
-      if (fin.revenue > 0 && s.price > 0 && s.totalShr > 0) {
-        const ps = (s.price * s.totalShr) / fin.revenue;
-        if (ps > 0 && ps < 1000) s.ps = ps;
-      }
+      // 记录营收（供行情更新后重算 PS）
+      if (fin.revenue > 0) s._revenue = fin.revenue;
     }
     if (div) {
       if (div.divLast > 0) s.divLast = div.divLast;
       if (div.divPrev > 0) s.divPrev = div.divPrev;
       if (div.divTotal > 0) s.divTotal = div.divTotal;
-      if (div.divLast > 0 && s.price > 0) {
-        const dy = div.divLast / s.price * 100;
-        if (dy >= 0 && dy < 50) s.divY = dy;
-      }
     }
     if (bb && bb.buyback >= 0) s.buyback = bb.buyback;
     s._fund = true;
+    recomputePriceDerived(s); // 价格就绪时算 PS/股息率
+  }
+  /* 重算依赖价格的派生字段（PS/股息率），行情更新后调用 */
+  function recomputePriceDerived(s) {
+    if (!s || s.price <= 0) return;
+    if (s._revenue > 0 && s.totalShr > 0) {
+      const ps = (s.price * s.totalShr) / s._revenue;
+      if (ps > 0 && ps < 1000) s.ps = ps;
+    }
+    if (s.divLast > 0) {
+      const dy = s.divLast / s.price * 100;
+      if (dy >= 0 && dy < 50) s.divY = dy;
+    }
   }
 
   /* 导出股票对象的完整字段快照（随备份保存，导入时先展示、后台再刷新） */
@@ -558,6 +563,7 @@
     if (!s._fundShr && q.floatCap > 0 && q.price > 0) s.floatShr = q.floatCap * 1e8 / q.price / 1e8;
     if (!s.prevShr) s.prevShr = s.totalShr;
     s._real = true;
+    recomputePriceDerived(s); // 行情更新后重算 PS/股息率（依赖价格）
     if (s.series) { s.series.push(s.price); if (s.series.length > 242) s.series.shift(); }
   }
 
