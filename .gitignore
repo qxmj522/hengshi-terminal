@@ -1,0 +1,20 @@
+# 敏感文件（含管理员密码，绝不公开）
+admin.json
+
+# 本地工作数据
+.workbuddy/
+
+# Python 辅助脚本（数据清单生成，非网站运行必需）
+py/
+__pycache__/
+*.pyc
+
+# macOS 启动器（含本机绝对路径）
+启动.command
+
+# 本地用户数据与缓存
+userdata.json
+userdata.backup.json
+.DS_Store
+*.log
+node_modules/

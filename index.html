@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="foCicOECPWvqIJGEULxdS1">
+<head data-page-node-id="ezpwEe6VxeX4LYsBxRKSuL">
+<meta charset="UTF-8" data-page-node-id="0C4v5sAEN3z4XQOn0CQ8Nn">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="Mp1pwNFHXgdKc6bioo5H73">
+<title>衡石资本 · 证券行情终端</title>
+<link rel="stylesheet" href="css/style.css?v=20260906r" data-page-node-id="CC93iUTYWknh5I8xjmfueI">
+</head>
+<body data-page-node-id="4W1AcTgSL8aFGkjySFbj6G">
+
+<!-- ============ 顶部菜单栏 ============ -->
+<header class="topbar" data-page-node-id="BeStk3JDQfxQgODhzL20IJ">
+  <div class="topbar-inner" data-page-node-id="ioFqJa0WP7TV415sAbBJDg">
+    <div class="brand" id="brandHome" data-page-node-id="IH7zXkCeyWNhSASZUxejZp">
+      <span class="brand-mark" data-page-node-id="tY9G9fJ85aLyE7A7UXMnwR"></span>
+      <span class="brand-name" data-page-node-id="QiEBD4iFwE4ClfaFjGvvLo">衡石资本</span>
+      <span class="brand-sub" data-page-node-id="CwKeviOGGTUa0SNpEPfeKN">HENGSHI CAPITAL</span>
+    </div>
+    <nav class="main-nav" data-page-node-id="brc9dJW9kLqIBbNsHgSKlu">
+      <a class="nav-item" data-view="watchlist" data-page-node-id="OI50wSNjGcCBvjVVF1YDX1">自选</a>
+      <a class="nav-item" data-view="stocks" data-page-node-id="om3Bg7oeu4XrBrUWMt9pkS">个股</a>
+      <a class="nav-item" data-view="market" data-page-node-id="RzHdXcTCvuD3jCj3or79Df">行情</a>
+      <a class="nav-item" data-view="compare" data-page-node-id="R9UsaIR8TCpEYqUAcG5Gk4">对比</a>
+    </nav>
+    <div class="topbar-right" data-page-node-id="z6ALCEFIEcZ2HyjDCMi426">
+      <div class="clock" id="topClock" data-page-node-id="R2yCJZX69SVZluR0reCu4H"><span class="clock-dot" data-page-node-id="gzwscl964YFRJ0ynTE4zNh"></span><span id="clockText" data-page-node-id="CkBbHg4ybxbyb7s0JphqBW">--:--:--</span></div>
+      <a class="nav-item account-entry" data-view="account" data-page-node-id="ozJiSUM5fwyuEAhRlMEPeM">
+        <span class="avatar" data-page-node-id="6qepETfklspBZFrKWP42ie">衡</span>个人账户
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ 主视图容器 ============ -->
+<main id="viewRoot" data-page-node-id="f2obG0GP9GEkQd4gELflDU"></main>
+
+<!-- ============ 单股全屏详情 ============ -->
+<section id="detailOverlay" class="detail-overlay hidden" data-page-node-id="k3xyOskT1GkPWswvySxO4B">
+  <div class="detail-head container-1700" data-page-node-id="d8SpqhiAbwypsTO4TeoD7d">
+    <div class="detail-title" data-page-node-id="fnyRKi4isoeNSM11qkRXWS">
+      <span class="detail-name" id="dtName" data-page-node-id="Dl42EZc0EbMXpEA7fKBAev">--</span>
+      <span class="detail-code" id="dtCode" data-page-node-id="Fo6yShIYkGn1lwwABSVmfi">--</span>
+      <span class="detail-price" id="dtPrice" data-page-node-id="1laQ59RPUzVtIe7zSMBUn2">--</span>
+      <span class="detail-chg" id="dtChg" data-page-node-id="5DPwmQHU0UMbE2YMtgAO9q">--</span>
+    </div>
+    <button class="detail-watch" id="dtWatch">＋ 加入自选</button>
+    <div class="detail-periods" id="dtPeriods" data-page-node-id="osL8194Uk28OeJTAqob75s">
+      <button data-period="intraday" class="period-btn active" data-page-node-id="YFzVz357tsYmtKlXPPpimw">分时</button>
+      <button data-period="day" class="period-btn" data-page-node-id="ohVZCUGWzajsEVeNz2YSvK">日K</button>
+      <button data-period="week" class="period-btn" data-page-node-id="dcLuXoMC34PJlSloZUMynQ">周K</button>
+      <button data-period="month" class="period-btn" data-page-node-id="xxoMQHyBuHoiqCzr2uafPx">月K</button>
+    </div>
+    <button class="detail-close" id="dtClose" data-page-node-id="4iRiqF5ecYPOx6bHLQ7hy7">✕ 关闭</button>
+  </div>
+  <div class="detail-body container-1700" data-page-node-id="ANiK5A2dZLqzLW8m2cjFN9">
+    <div class="detail-chart-wrap" data-page-node-id="jCRoiLZroaNDqvocK5sfjb"><canvas id="dtChart" data-page-node-id="KMppgsBCRzdDEPyCgdTwYa"></canvas></div>
+    <aside class="detail-info" id="dtInfo" data-page-node-id="qjmGnE9SqH4E2nmexIDxkH"></aside>
+  </div>
+</section>
+
+<!-- ============ 通用弹窗 ============ -->
+<div id="modalMask" class="modal-mask hidden" data-page-node-id="UjghCnplgSGY9kHqz7P1Lc">
+  <div class="modal" id="modalBox" data-page-node-id="Nx93UfsfHKjmsXwpwI1bt0"></div>
+</div>
+
+<!-- ============ 右键菜单 ============ -->
+<div id="ctxMenu" class="ctx-menu hidden" data-page-node-id="YtzeriP2RdibQDz6ret7RB"></div>
+
+<!-- ============ Toast ============ -->
+<div id="toast" class="toast hidden" data-page-node-id="ABm4FajHn7tfm5HNCcmKql"></div>
+
+<script src="js/stocklist.js?v=20260906r"></script>
+<script src="js/data.js?v=20260906r"></script>
+<script src="js/engine.js?v=20260906r"></script>
+<script src="js/charts.js?v=20260906r"></script>
+<script src="js/app.js?v=20260906r"></script>
+</body>
+</html>
