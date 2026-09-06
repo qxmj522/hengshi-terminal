@@ -622,6 +622,38 @@
     if (v !== '') toast('已设置击球点 · ' + StockMap[code].name + ' → ' + v);
   });
 
+  /* ---------- 抓取自选里 A 股的基本面数据（东财：ROE/净利润/营收/股本/分红/回购） ---------- */
+  let fundamentalBusy = false;
+  function refreshFundamentals(onDone) {
+    if (fundamentalBusy) { onDone && onDone(); return; }
+    const codes = Store.state.watchlist.map(w => w.code).filter(c => /^(SH|SZ|BJ)\d{6}$/.test(c));
+    if (!codes.length) { onDone && onDone(); return; }
+    fundamentalBusy = true;
+    const fetchOne = async (code) => {
+      const s = StockMap[code]; if (!s) return;
+      try {
+        const [fin, div, bb] = await Promise.all([
+          Market.fetchFundamental(code),
+          Market.fetchDividend(code),
+          Market.fetchBuyback(code)
+        ]);
+        if (fin || div || bb) Market.applyFundamental(s, fin, div, bb);
+      } catch (e) { /* 单个失败不影响其他 */ }
+    };
+    (async () => {
+      try {
+        for (let i = 0; i < codes.length; i += 5) {
+          await Promise.all(codes.slice(i, i + 5).map(fetchOne));
+        }
+      } finally {
+        fundamentalBusy = false;
+      }
+      if (UI.view === 'watchlist') viewWatchlist($('#viewRoot'));
+      else if (UI.view === 'stocks') viewStocks($('#viewRoot'));
+      onDone && onDone();
+    })();
+  }
+
   /* ============================================================
    * 自选模块
    * ============================================================ */
@@ -1272,6 +1304,7 @@
           UI.tagTab = null; UI.wlTab = 'all'; UI.detailCode = null;
           closeModal();
           navigate('home');
+          refreshFundamentals(); // 导入后立即抓取自选的基本面数据（ROE/股息率/分红/净利润等）
           toast('导入成功 · 自选 ' + state.watchlist.length + ' 只 / 标签 ' + state.customTags.length + ' 个');
         };
       };
@@ -1344,6 +1377,7 @@
   const rawHash = location.hash; // 先保存原始hash，navigate会改写
   const initView = validViews.includes(rawHash.slice(1)) ? rawHash.slice(1) : 'home';
   Market.materializeWatchlist(); // 启动时先把自选/对比里的股票补建入库，确保能显示
+  refreshFundamentals(); // 启动时抓取自选的基本面数据（ROE/股息率/分红/净利润等）
   navigate(initView);
   // 支持 #detail=CODE 直达单股全屏详情
   const m = rawHash.match(/detail=([A-Z0-9]+)/i);

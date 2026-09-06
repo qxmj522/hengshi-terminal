@@ -300,6 +300,102 @@
     return fetchQuotesDirect(tcs);
   }
 
+  /* ---------- 东财基本面数据（前端直连，datacenter.eastmoney.com 带 CORS:*） ---------- */
+  function secuCodeOf(code) {
+    const c = String(code || '').toUpperCase();
+    if (/^SH\d{6}$/.test(c)) return c.slice(2) + '.SH';
+    if (/^SZ\d{6}$/.test(c)) return c.slice(2) + '.SZ';
+    if (/^BJ\d{6}$/.test(c)) return c.slice(2) + '.BJ';
+    return null; // 港股/美股走不同接口，暂不覆盖
+  }
+  async function emGet(reportName, filter, sortColumns) {
+    try {
+      const url = 'https://datacenter.eastmoney.com/securities/api/data/v1/get?reportName=' + reportName +
+        '&columns=ALL&filter=' + encodeURIComponent(filter) +
+        '&pageNumber=1&pageSize=10&sortColumns=' + encodeURIComponent(sortColumns) + '&sortTypes=-1';
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return (d && d.result && d.result.data) ? d.result.data : null;
+    } catch (e) { return null; }
+  }
+  /* 财务指标：ROE / 净利润 / 营收 / 股本 */
+  async function fetchFundamental(code) {
+    const secu = secuCodeOf(code); if (!secu) return null;
+    const rows = await emGet('RPT_F10_FINANCE_MAINFINADATA', '(SECUCODE="' + secu + '")', 'REPORT_DATE');
+    if (!rows || !rows.length) return null;
+    const L = rows[0], P = rows[1] || null;
+    return {
+      roe: numV(L.ROEJQ),
+      profit: numV(L.PARENTNETPROFIT) / 1e8,          // 归母净利润(亿)
+      revenue: numV(L.TOTALOPERATEREVE) / 1e8,        // 营业总收入(亿)
+      totalShr: numV(L.TOTAL_SHARE) / 1e8,            // 总股本(亿股)
+      floatShr: (numV(L.A_FREE_SHARE) + numV(L.B_FREE_SHARE)) / 1e8, // 流通股本(亿股)
+      prevShr: P ? numV(P.TOTAL_SHARE) / 1e8 : 0      // 上期总股本(亿股)
+    };
+  }
+  /* 分红：每股派息 / 分红总额 */
+  async function fetchDividend(code) {
+    const secu = secuCodeOf(code); if (!secu) return null;
+    const rows = await emGet('RPT_SHAREBONUS_DET', '(SECUCODE="' + secu + '")', 'EX_DIVIDEND_DATE');
+    if (!rows || !rows.length) return null;
+    const impl = rows.filter(r => String(r.ASSIGN_PROGRESS || '').indexOf('实施') >= 0);
+    if (!impl.length) return null;
+    const L = impl[0], P = impl[1] || null;
+    const dLast = numV(L.PRETAX_BONUS_RMB) / 10;       // 每10股派息 → 每股
+    return {
+      divLast: dLast,
+      divPrev: P ? numV(P.PRETAX_BONUS_RMB) / 10 : 0,
+      divTotal: dLast * numV(L.TOTAL_SHARES) / 1e8     // 分红总额(亿)
+    };
+  }
+  /* 回购：近一年回购金额汇总 */
+  async function fetchBuyback(code) {
+    const c6 = code.slice(2);
+    try {
+      const url = 'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPTA_WEB_GETHGLIST_NEW&columns=ALL&filter=' +
+        encodeURIComponent('(DIM_SCODE="' + c6 + '")') + '&pageNumber=1&pageSize=50&sortColumns=UPD&sortTypes=-1&source=WEB';
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return null;
+      const d = await r.json();
+      const rows = d && d.result && d.result.data;
+      if (!rows || !rows.length) return null;
+      const yearAgo = Date.now() - 365 * 86400000;
+      let total = 0;
+      rows.forEach(r => {
+        const t = r.DIM_TRADEDATE ? new Date(String(r.DIM_TRADEDATE).replace(' ', 'T')).getTime() : 0;
+        if (t >= yearAgo) total += numV(r.REPURAMOUNT);
+      });
+      return { buyback: total / 1e8 };
+    } catch (e) { return null; }
+  }
+  /* 应用基本面数据（含可信度校验，异常/缺失保持 0 → 显示"—"） */
+  function applyFundamental(s, fin, div, bb) {
+    if (fin) {
+      if (fin.roe > -100 && fin.roe < 100) s.roe = fin.roe;
+      if (fin.profit !== 0) s.profit = fin.profit;
+      if (fin.totalShr > 0) { s.totalShr = fin.totalShr; s._fundShr = true; }
+      if (fin.floatShr > 0) s.floatShr = fin.floatShr;
+      if (fin.prevShr > 0) s.prevShr = fin.prevShr;
+      // PS = 总市值 / 营收
+      if (fin.revenue > 0 && s.price > 0 && s.totalShr > 0) {
+        const ps = (s.price * s.totalShr) / fin.revenue;
+        if (ps > 0 && ps < 1000) s.ps = ps;
+      }
+    }
+    if (div) {
+      if (div.divLast > 0) s.divLast = div.divLast;
+      if (div.divPrev > 0) s.divPrev = div.divPrev;
+      if (div.divTotal > 0) s.divTotal = div.divTotal;
+      if (div.divLast > 0 && s.price > 0) {
+        const dy = div.divLast / s.price * 100;
+        if (dy >= 0 && dy < 50) s.divY = dy;
+      }
+    }
+    if (bb && bb.buyback >= 0) s.buyback = bb.buyback;
+    s._fund = true;
+  }
+
   /* 应用真实行情快照到股票对象 */
   function applyReal(s, q) {
     // 离线时物化的股票（价格为0）首次拿到真实数据：清除已生成的空白历史/分时缓存
@@ -315,8 +411,9 @@
     if (q.peT > 0) s.peT = q.peT;
     if (q.peS > 0) s.peS = q.peS;
     if (q.pb > 0) s.pb = q.pb;
-    if (q.totalCap > 0 && q.price > 0) s.totalShr = q.totalCap * 1e8 / q.price / 1e8;
-    if (q.floatCap > 0 && q.price > 0) s.floatShr = q.floatCap * 1e8 / q.price / 1e8;
+    // 股本：东财精确股本优先（_fundShr），否则用腾讯市值反推兜底
+    if (!s._fundShr && q.totalCap > 0 && q.price > 0) s.totalShr = q.totalCap * 1e8 / q.price / 1e8;
+    if (!s._fundShr && q.floatCap > 0 && q.price > 0) s.floatShr = q.floatCap * 1e8 / q.price / 1e8;
     if (!s.prevShr) s.prevShr = s.totalShr;
     s._real = true;
     if (s.series) { s.series.push(s.price); if (s.series.length > 242) s.series.shift(); }
@@ -479,7 +576,7 @@
   window.Fmt = { CUR, fmtPrice, fmtPct, fmtCap, fmtYi, fmtShares, fmtRatio };
   window.StockMap = stockMap;
   window.IndexMap = indexMap;
-  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes };
+  window.Market = { tcOf, addDynamicStock, ensureStockInUniverse, materializeWatchlist, marketOfCode, canonicalizeCode, applyQuote, fetchQuotes, secuCodeOf, fetchFundamental, fetchDividend, fetchBuyback, applyFundamental };
   /* 按代码应用行情快照（股票已入库时更新，未入库返回null） */
   function applyQuote(code, q) { const s = stockMap[code]; if (s && q && q.price > 0) { applyReal(s, q); return s; } return s; }
 })();
