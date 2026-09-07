@@ -679,11 +679,16 @@
     if (field === 'divY' || field === 'roe') return v.toFixed(2) + '%';
     return v.toFixed(2);
   }
+  const VERIFY_CLOSED_KEY = 'hengshi_verify_closed'; // 记录用户已关闭的核验快照时间戳
   function verifyPanelHTML(list) {
     if (!window.Verify || !Verify.active) return '';
     const report = Verify.report(list);
     if (!report.length) return '';
     const up = (Verify.updatedAt || '').replace('T', ' ').slice(0, 16);
+    // 用户已主动关闭过该次核验提示（快照未更新则不再显示，更新后重新提示）
+    try {
+      if (localStorage.getItem(VERIFY_CLOSED_KEY) === (Verify.updatedAt || '')) return '';
+    } catch (e) { /* 隐私模式下忽略 */ }
     const rows = report.map(r => {
       const ds = r.diffs.map(d =>
         `${d.label} 网页<span class="v-w">${vFmt(d.field, d.web)}</span> vs 通达信<span class="v-t">${vFmt(d.field, d.tdx)}</span>`
@@ -691,7 +696,10 @@
       return `<div class="verify-item"><b>${esc(r.name)}</b> <span class="v-code">${r.code}</span>：${ds}</div>`;
     }).join('');
     return `<div class="verify-panel">
-      <div class="verify-head">⚠️ 通达信数据核验 · 发现 <b>${report.length}</b> 只股票存在差异（核验时间 ${up}）</div>
+      <div class="verify-head">
+        <span>⚠️ 通达信数据核验 · 发现 <b>${report.length}</b> 只股票存在差异（核验时间 ${up}）</span>
+        <button class="verify-close" id="btnCloseVerify" title="我已了解，关闭此提示">✕</button>
+      </div>
       <div class="verify-body">${rows}</div>
     </div>`;
   }
@@ -723,6 +731,13 @@
       ${list.length ? tableHTML(list) : `<div class="table-card"><div class="table-empty"><div class="big">暂无自选标的</div>回首页搜索股票，点击「加入自选」并设置行业标签</div></div>`}
     </div>`;
     $$('.seg-tab').forEach(b => b.onclick = () => { UI.wlTab = b.dataset.tab; viewWatchlist(R); });
+    /* 核验面板：关闭后持久化隐藏（快照更新后自动重新提示） */
+    const btnClose = $('#btnCloseVerify');
+    if (btnClose) btnClose.onclick = () => {
+      try { localStorage.setItem(VERIFY_CLOSED_KEY, (window.Verify && Verify.updatedAt) || ''); } catch (e) {}
+      viewWatchlist(R);
+      toast('已关闭核验提示 · 通达信快照更新后会重新提示');
+    };
   }
 
   /* ============================================================
