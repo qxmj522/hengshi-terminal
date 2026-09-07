@@ -540,7 +540,10 @@
       case 'no': return `<td class="c row-no" data-f="no">${i + 1}</td>`;
       case 'tags': return `<td class="l" data-f="tags">${tagsHTML(w ? w.tags : [])}</td>`;
       case 'code': return `<td class="l cell-code" data-f="code">${s.code}</td>`;
-      case 'name': return `<td class="l cell-name" data-f="name">${esc(s.name)}</td>`;
+      case 'name': {
+        const warn = (window.Verify && Verify.hasDiff(s)) ? '<span class="verify-badge" title="通达信数据与网页抓取存在差异，见顶部核验面板">⚠</span>' : '';
+        return `<td class="l cell-name" data-f="name">${esc(s.name)}${warn}</td>`;
+      }
       case 'price': return `<td class="cell-price ${fc.cls}" data-f="price">${Fmt.fmtPrice(s)}</td>`;
       case 'strike': {
         const hit = w && w.strike !== '' && !isNaN(+w.strike) && s.price <= +w.strike;
@@ -669,6 +672,30 @@
     });
   }
 
+  /* ---------- 通达信数据核验：对比网页抓取 vs 通达信快照，标出差异 ---------- */
+  function vFmt(field, v) {
+    if (v == null || !isFinite(v)) return '—';
+    if (field === 'totalCap' || field === 'floatCap') return v.toFixed(0) + '亿';
+    if (field === 'divY' || field === 'roe') return v.toFixed(2) + '%';
+    return v.toFixed(2);
+  }
+  function verifyPanelHTML(list) {
+    if (!window.Verify || !Verify.active) return '';
+    const report = Verify.report(list);
+    if (!report.length) return '';
+    const up = (Verify.updatedAt || '').replace('T', ' ').slice(0, 16);
+    const rows = report.map(r => {
+      const ds = r.diffs.map(d =>
+        `${d.label} 网页<span class="v-w">${vFmt(d.field, d.web)}</span> vs 通达信<span class="v-t">${vFmt(d.field, d.tdx)}</span>`
+      ).join('　');
+      return `<div class="verify-item"><b>${esc(r.name)}</b> <span class="v-code">${r.code}</span>：${ds}</div>`;
+    }).join('');
+    return `<div class="verify-panel">
+      <div class="verify-head">⚠️ 通达信数据核验 · 发现 <b>${report.length}</b> 只股票存在差异（核验时间 ${up}）</div>
+      <div class="verify-body">${rows}</div>
+    </div>`;
+  }
+
   /* ============================================================
    * 自选模块
    * ============================================================ */
@@ -686,6 +713,7 @@
         <div class="page-title">我的自选<small>WATCHLIST</small></div>
         <div class="refresh-note"><span class="dot"></span>每 ${Store.state.refreshMs / 1000} 秒实时刷新 · 双击股票名称/代码查看全屏详情</div>
       </div>
+      ${verifyPanelHTML(list)}
       <div class="seg-tabs">${tabs.map(([k, t]) => {
         const cnt = k === 'all' ? Store.state.watchlist.length
           : Store.state.watchlist.map(w => StockMap[w.code]).filter(Boolean)
